@@ -1,0 +1,6 @@
+.pytest_cache
+.venv
+.vscode
+.env
+*.json
+__pycache__
