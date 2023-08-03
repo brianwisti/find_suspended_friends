@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -11,6 +12,12 @@ from rich.table import Table
 # for dotenv
 ENV_FILE = ".env"
 
+# how long to hold onto cache files
+CACHE_LIFESPAN = timedelta(hours=1)
+
+# When did this script start running?
+NOW = datetime.now()
+
 logging.basicConfig(level="INFO", format="%(message)s", handlers=[RichHandler()])
 
 
@@ -18,7 +25,8 @@ def stored(func):
     """
     Utilize a file cache for the decorated function.
 
-    If the cache does not exist, call the function and store the result. Otherwise, load from cache.
+    - if the cache exists and is younger than ``CACHE_LIFESPAN``, use it
+    - otherwise, call the function and store the result
     """
 
     def inner(*args, **kwargs):
@@ -27,9 +35,14 @@ def stored(func):
         cache_file = Path(f"{func_name}.json")
 
         if cache_file.is_file():
-            logging.info("Loading data from %s", str(cache_file))
-            data = json.loads(cache_file.read_text(encoding="utf-8"))
-            return data
+            logging.debug("Cache file %s exists", cache_file)
+            cache_written_at = datetime.fromtimestamp(cache_file.stat().st_mtime)
+            logging.debug("Cache file written at %s", cache_written_at)
+
+            if NOW - cache_written_at < CACHE_LIFESPAN:
+                logging.info("Loading data from %s", cache_file)
+                data = json.loads(cache_file.read_text(encoding="utf-8"))
+                return data
 
         logging.info("Calling %s", func_name)
         data = func(*args, **kwargs)
