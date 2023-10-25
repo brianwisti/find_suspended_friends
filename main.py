@@ -12,6 +12,13 @@ from rich.table import Table
 # for dotenv
 ENV_FILE = ".env"
 
+SUSPENDED_TABLE_COLUMNS = [
+    ("url", "green"),
+    ("acct", "white"),
+    ("last_status_at", "white"),
+    ("follower", "blue"),
+    ("following", "blue"),
+]
 # how long to hold onto cache files
 CACHE_LIFESPAN = timedelta(hours=1)
 
@@ -90,29 +97,68 @@ def followers(mastodon: Mastodon, user_id: int):
     return accounts
 
 
+@stored
+def my_suspended_acquaintances(followers, following):
+    """
+    Identify known accounts that have some relation to me.
+
+    Relation is either: they follow me or I follow them.
+    """
+    related_accounts = {}
+
+    for account in followers:
+        handle = account["acct"]
+
+        if handle not in related_accounts:
+            related_accounts[handle] = account
+            related_accounts[handle]["following"] = False
+
+        related_accounts[handle]["follower"] = True
+
+    for account in following:
+        handle = account["acct"]
+
+        if handle not in related_accounts:
+            related_accounts[handle] = account
+            related_accounts[handle]["follower"] = False
+
+        related_accounts[handle]["following"] = True
+
+    suspended_accounts = [
+        account
+        for handle, account in related_accounts.items()
+        if account.get("suspended")
+    ]
+    suspended_accounts.sort(key=lambda account: account["acct"])
+
+    return suspended_accounts
+
+
+@stored
+def suspended_table_rows(accounts):
+    """Filter accounts to columns used for table summary."""
+    return [
+        {column: row[column] for column, _ in SUSPENDED_TABLE_COLUMNS}
+        for row in accounts
+    ]
+
+
 def accounts_table(accounts):
     """Return a Rich table summary of provided accounts."""
     logging.debug(accounts[0].keys())
-    columns = [
-        ["acct"],
-        ["url"],
-        ["last_status_at"],
-        ["follower"],
-        ["following"],
-    ]
-    table = Table(title="Suspended Accounts", show_footer=True)
+    table = Table(show_footer=True)
+    table.add_column("row", "row", style="bold green")
 
-    table.add_column("row", "row", style="green")
+    for column_name, style in SUSPENDED_TABLE_COLUMNS:
+        table.add_column(column_name, column_name, style=style)
 
-    for column in columns:
-        column_name = column[0]
-        table.add_column(column_name, column_name)
-
+    # cache more for information sharing than for optimization
+    account_rows = suspended_table_rows(accounts)
     row_index = 0
 
-    for account in accounts:
+    for account in account_rows:
         row_index += 1
-        values = [str(account.get(column[0])) for column in columns]
+        values = [str(account.get(column)) for column, _ in SUSPENDED_TABLE_COLUMNS]
         table.add_row(str(row_index), *values)
 
     return table
@@ -133,38 +179,15 @@ def main():
     logging.debug(followers_me)
     logging.debug(following_me)
 
-    related_accounts = {}
-
-    for account in followers_me:
-        handle = account["acct"]
-
-        if handle not in related_accounts:
-            related_accounts[handle] = account
-            related_accounts[handle]["following"] = False
-
-        related_accounts[handle]["follower"] = True
-
-    for account in following_me:
-        handle = account["acct"]
-
-        if handle not in related_accounts:
-            related_accounts[handle] = account
-            related_accounts[handle]["follower"] = False
-
-        related_accounts[handle]["following"] = True
-
-    suspended_accounts = [
-        account
-        for handle, account in related_accounts.items()
-        if account.get("suspended")
-    ]
-    suspended_accounts.sort(key=lambda account: account["acct"])
+    suspended_accounts = my_suspended_acquaintances(
+        followers=followers_me, following=following_me
+    )
 
     logging.debug(suspended_accounts)
-    logging.info("%s accounts appear to be suspended", len(suspended_accounts))
     console = Console()
     table = accounts_table(suspended_accounts)
     console.print(table)
+    logging.info("%s accounts appear to be suspended", len(suspended_accounts))
 
 
 if __name__ == "__main__":

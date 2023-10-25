@@ -36,3 +36,5 @@ python main.py
 ```
 
 Bask in the beauty of a table listing accounts that your instance thinks are suspended. An empty table if you're lucky.
+
+Intermediate data is stored on disk as JSON files, providing both a cache to reduce load on server and something you can wave at your admin.
